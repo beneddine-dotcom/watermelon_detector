@@ -1,0 +1,687 @@
+cat > /mnt/user-data/outputs/watermelon_detector.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🍉 كاشف جودة البطيخ الذكي</title>
+<style>
+/* ══════════════════════════════════════════
+   RESET & VARIABLES
+══════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg0:    #03050d;
+  --bg1:    #080f1e;
+  --bg2:    #0d1a2e;
+  --good:   #00e676;
+  --bad:    #ff1744;
+  --warn:   #ffab40;
+  --gold:   #ffd740;
+  --text:   #e8f0fe;
+  --dim:    #8892b0;
+  --card:   rgba(255,255,255,.04);
+  --border: rgba(255,255,255,.08);
+  --glow-g: rgba(0,230,118,.18);
+  --glow-b: rgba(255,23,68,.18);
+  --glow-w: rgba(255,171,64,.18);
+  --r:      16px;
+}
+
+body {
+  font-family: 'Cairo', 'Segoe UI', Arial, sans-serif;
+  background: var(--bg0);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── animated background ── */
+.bg-fx {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  overflow: hidden;
+}
+.bg-fx::before, .bg-fx::after {
+  content: '';
+  position: absolute;
+  width: 60vw; height: 60vw;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: .12;
+  animation: drift 14s ease-in-out infinite alternate;
+}
+.bg-fx::before {
+  background: var(--good);
+  top: -15%; left: -15%;
+}
+.bg-fx::after {
+  background: var(--bad);
+  bottom: -15%; right: -15%;
+  animation-delay: -7s;
+}
+@keyframes drift { to { transform: translate(8%, 6%) scale(1.1); } }
+
+.particles {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+}
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(0,230,118,.3);
+  animation: floatUp 18s ease-in-out infinite;
+}
+@keyframes floatUp {
+  0%,100% { transform: translateY(0); opacity: 0; }
+  10%      { opacity: .5; }
+  90%      { opacity: .4; }
+  100%     { transform: translateY(-200px) translateX(60px); opacity: 0; }
+}
+
+/* ══════════════════════════════════════════
+   LAYOUT
+══════════════════════════════════════════ */
+.page {
+  position: relative; z-index: 1;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ── header ── */
+.header {
+  text-align: center;
+  padding: 28px 0 22px;
+}
+.header .logo {
+  font-size: 3.4rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 20px rgba(0,230,118,.6));
+  animation: pulse-logo 3s ease-in-out infinite;
+}
+@keyframes pulse-logo {
+  0%,100% { filter: drop-shadow(0 0 18px rgba(0,230,118,.55)); }
+  50%      { filter: drop-shadow(0 0 34px rgba(0,230,118,.9)); }
+}
+.header h1 {
+  font-size: clamp(1.4rem, 4vw, 2.2rem);
+  font-weight: 800;
+  margin-top: 8px;
+  background: linear-gradient(135deg, var(--good), var(--gold), var(--warn));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.header p {
+  font-size: .85rem;
+  color: var(--dim);
+  margin-top: 5px;
+}
+
+/* ── stat cards ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 10px;
+  text-align: center;
+  transition: transform .25s, box-shadow .25s;
+}
+.stat-card:hover { transform: translateY(-3px); }
+.stat-card.good  { border-color: var(--good); box-shadow: 0 0 18px var(--glow-g); }
+.stat-card.bad   { border-color: var(--bad);  box-shadow: 0 0 18px var(--glow-b); }
+.stat-card.warn  { border-color: var(--warn); box-shadow: 0 0 18px var(--glow-w); }
+.stat-num  { font-size: 2rem; font-weight: 800; }
+.stat-card.good .stat-num  { color: var(--good); }
+.stat-card.bad  .stat-num  { color: var(--bad);  }
+.stat-card.warn .stat-num  { color: var(--warn); }
+.stat-lbl  { font-size: .78rem; color: var(--dim); margin-top: 3px; }
+
+/* ── camera box ── */
+.cam-box {
+  position: relative;
+  background: #000;
+  border-radius: var(--r);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 40px rgba(0,0,0,.6);
+  aspect-ratio: 4/3;
+}
+.cam-box video,
+.cam-box canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: var(--r);
+}
+.cam-box canvas { z-index: 2; }
+
+/* scan-line overlay */
+.scan-line {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--good), transparent);
+  z-index: 3;
+  opacity: 0;
+  transition: opacity .3s;
+}
+.scanning .scan-line {
+  opacity: 1;
+  animation: scan 1.6s linear infinite;
+}
+@keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+/* corner frame */
+.cam-box::before, .cam-box::after,
+.cam-inner::before, .cam-inner::after {
+  content: '';
+  position: absolute;
+  width: 24px; height: 24px;
+  z-index: 4;
+  border-color: var(--good);
+  border-style: solid;
+  opacity: .7;
+}
+.cam-box::before   { top: 12px;    right: 12px;  border-width: 2px 2px 0 0; }
+.cam-box::after    { top: 12px;    left: 12px;   border-width: 2px 0 0 2px; }
+.cam-inner::before { bottom: 12px; right: 12px;  border-width: 0 2px 2px 0; }
+.cam-inner::after  { bottom: 12px; left: 12px;   border-width: 0 0 2px 2px; }
+.cam-inner { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+
+/* no-cam overlay */
+.no-cam {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px; z-index: 5;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(4px);
+}
+.no-cam-icon { font-size: 3rem; }
+.no-cam p    { color: var(--dim); font-size: .9rem; text-align: center; }
+
+/* ── controls ── */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 14px 10px;
+  border: none; border-radius: 12px;
+  font-size: .95rem; font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .22s;
+  position: relative; overflow: hidden;
+}
+.btn::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,.12);
+  opacity: 0;
+  transition: opacity .2s;
+}
+.btn:hover::after { opacity: 1; }
+.btn:active { transform: scale(.97); }
+.btn-capture {
+  background: linear-gradient(135deg, #00c853, #00e676);
+  color: #032;
+  box-shadow: 0 4px 20px rgba(0,230,118,.4);
+}
+.btn-upload {
+  background: linear-gradient(135deg, #1565c0, #42a5f5);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(66,165,245,.3);
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* ── result card ── */
+.result-wrap {
+  margin-top: 20px;
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height .5s ease;
+}
+.result-wrap.open { max-height: 500px; }
+
+.result-card {
+  border-radius: var(--r);
+  padding: 22px 20px;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  animation: fadeSlideUp .4s ease;
+}
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.result-card.good { border-color: var(--good); box-shadow: 0 0 28px var(--glow-g); }
+.result-card.bad  { border-color: var(--bad);  box-shadow: 0 0 28px var(--glow-b); }
+.result-card.warn { border-color: var(--warn); box-shadow: 0 0 28px var(--glow-w); }
+
+.result-icon { font-size: 3.2rem; line-height: 1; }
+.result-title {
+  font-size: 1.45rem; font-weight: 800;
+  margin: 10px 0 4px;
+}
+.result-card.good .result-title { color: var(--good); }
+.result-card.bad  .result-title { color: var(--bad);  }
+.result-card.warn .result-title { color: var(--warn); }
+.result-msg { font-size: .9rem; color: var(--dim); }
+
+/* score bar */
+.score-wrap  { margin: 14px 0 4px; }
+.score-label { font-size: .78rem; color: var(--dim); text-align: right; margin-bottom: 5px; }
+.score-bar   { height: 8px; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; }
+.score-fill  {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, var(--bad), var(--warn), var(--good));
+  transition: width .7s cubic-bezier(.4,0,.2,1);
+}
+
+/* detail pills */
+.details {
+  display: flex; flex-wrap: wrap; gap: 7px;
+  justify-content: center; margin-top: 12px;
+}
+.pill {
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 4px 12px;
+  font-size: .78rem;
+  color: var(--dim);
+}
+
+/* ── history ── */
+.history-title {
+  font-size: .85rem; font-weight: 700; color: var(--dim);
+  margin: 22px 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.history-title::before, .history-title::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: var(--border);
+}
+.history-list { display: flex; flex-direction: column; gap: 8px; }
+
+.h-item {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: .85rem;
+  animation: fadeSlideUp .3s ease;
+}
+.h-item.good { border-right: 3px solid var(--good); }
+.h-item.bad  { border-right: 3px solid var(--bad);  }
+.h-item.warn { border-right: 3px solid var(--warn); }
+.h-icon  { font-size: 1.5rem; }
+.h-body  { flex: 1; }
+.h-label { font-weight: 700; }
+.h-item.good .h-label { color: var(--good); }
+.h-item.bad  .h-label { color: var(--bad);  }
+.h-item.warn .h-label { color: var(--warn); }
+.h-msg   { color: var(--dim); font-size: .78rem; margin-top: 2px; }
+.h-score { font-size: .8rem; color: var(--dim); white-space: nowrap; }
+
+/* empty state */
+.empty { text-align: center; color: var(--dim); padding: 24px; font-size: .88rem; }
+.empty-icon { font-size: 2rem; display: block; margin-bottom: 8px; }
+
+/* ── spinner ── */
+.spinner {
+  display: none;
+  width: 22px; height: 22px;
+  border: 3px solid rgba(255,255,255,.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.btn.loading .spinner { display: inline-block; }
+.btn.loading .btn-text { display: none; }
+
+/* ── responsive ── */
+@media (max-width: 480px) {
+  .stats { gap: 8px; }
+  .stat-num { font-size: 1.6rem; }
+  .controls { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-fx" aria-hidden="true"></div>
+<div class="particles" id="particles" aria-hidden="true"></div>
+
+<div class="page">
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="logo" aria-hidden="true">🍉</div>
+    <h1>كاشف جودة البطيخ الذكي</h1>
+    <p>تحليل ذكي للون والنسيج — كشف نترات عالية</p>
+  </header>
+
+  <!-- ── Stats ── -->
+  <div class="stats" role="status" aria-label="إحصائيات التحليل">
+    <div class="stat-card good">
+      <div class="stat-num" id="goodCount">0</div>
+      <div class="stat-lbl">✅ جيد</div>
+    </div>
+    <div class="stat-card bad">
+      <div class="stat-num" id="badCount">0</div>
+      <div class="stat-lbl">❌ رديء</div>
+    </div>
+    <div class="stat-card warn">
+      <div class="stat-num" id="warnCount">0</div>
+      <div class="stat-lbl">⚠️ نترات محتملة</div>
+    </div>
+  </div>
+
+  <!-- ── Camera ── -->
+  <div class="cam-box" id="camBox">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="scan-line" id="scanLine"></div>
+    <div class="cam-inner" aria-hidden="true"></div>
+    <div class="no-cam" id="noCam">
+      <div class="no-cam-icon">📷</div>
+      <p>جاري تشغيل الكاميرا…</p>
+    </div>
+  </div>
+
+  <!-- ── Controls ── -->
+  <div class="controls">
+    <button class="btn btn-capture" id="captureBtn" disabled>
+      <div class="spinner"></div>
+      <span class="btn-text">📷 التقاط وتحليل</span>
+    </button>
+    <button class="btn btn-upload" id="uploadBtn">
+      <div class="spinner"></div>
+      <span class="btn-text">🖼️ رفع صورة</span>
+    </button>
+  </div>
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+
+  <!-- ── Result ── -->
+  <div class="result-wrap" id="resultWrap">
+    <div class="result-card" id="resultCard">
+      <div class="result-icon" id="rIcon"></div>
+      <div class="result-title" id="rTitle"></div>
+      <div class="result-msg"   id="rMsg"></div>
+      <div class="score-wrap">
+        <div class="score-label" id="rScoreLbl"></div>
+        <div class="score-bar"><div class="score-fill" id="rFill" style="width:0%"></div></div>
+      </div>
+      <div class="details" id="rDetails"></div>
+    </div>
+  </div>
+
+  <!-- ── History ── -->
+  <div class="history-title">السجل</div>
+  <div class="history-list" id="historyList">
+    <div class="empty">
+      <span class="empty-icon">🔍</span>
+      التقط صورة للبطيخ لبدء التحليل
+    </div>
+  </div>
+
+</div><!-- /.page -->
+
+<script>
+'use strict';
+
+/* ── Particles ── */
+(function(){
+  const c = document.getElementById('particles');
+  for (let i = 0; i < 40; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const s = Math.random() * 5 + 2;
+    p.style.cssText =
+      `width:${s}px;height:${s}px;` +
+      `left:${Math.random()*100}%;` +
+      `top:${Math.random()*100}%;` +
+      `animation-delay:${Math.random()*18}s;` +
+      `animation-duration:${14+Math.random()*10}s;` +
+      `background:rgba(0,230,118,${.15+Math.random()*.25})`;
+    c.appendChild(p);
+  }
+})();
+
+/* ── DOM refs ── */
+const video      = document.getElementById('video');
+const canvas     = document.getElementById('canvas');
+const ctx        = canvas.getContext('2d');
+const camBox     = document.getElementById('camBox');
+const noCam      = document.getElementById('noCam');
+const scanLine   = document.getElementById('scanLine');
+const captureBtn = document.getElementById('captureBtn');
+const uploadBtn  = document.getElementById('uploadBtn');
+const fileInput  = document.getElementById('fileInput');
+const resultWrap = document.getElementById('resultWrap');
+const resultCard = document.getElementById('resultCard');
+const histList   = document.getElementById('historyList');
+
+const goodCount  = document.getElementById('goodCount');
+const badCount   = document.getElementById('badCount');
+const warnCount  = document.getElementById('warnCount');
+
+let counts = { good:0, bad:0, warn:0 };
+let busy = false;
+
+/* ══════════════════════════════════════════
+   CAMERA
+══════════════════════════════════════════ */
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width:{ideal:1280}, height:{ideal:960} }
+    });
+    video.srcObject = stream;
+    await video.play();
+    noCam.style.display = 'none';
+    captureBtn.disabled = false;
+  } catch {
+    noCam.querySelector('p').textContent = 'تعذّر الوصول إلى الكاميرا — يمكنك رفع صورة';
+  }
+}
+
+/* ══════════════════════════════════════════
+   ANALYSIS ENGINE
+══════════════════════════════════════════ */
+function analyzeColor(data, w, h) {
+  /* Sample the central 40% of the image */
+  const cx = w/2, cy = h/2;
+  const rx = w*0.2, ry = h*0.2;
+  let r=0,g=0,b=0, n=0;
+  for (let y = Math.round(cy-ry); y < cy+ry; y++) {
+    for (let x = Math.round(cx-rx); x < cx+rx; x++) {
+      const i = (y*w+x)*4;
+      r += data[i]; g += data[i+1]; b += data[i+2]; n++;
+    }
+  }
+  r/=n; g/=n; b/=n;
+
+  const saturation = Math.max(r,g,b) - Math.min(r,g,b);
+  const redDom = r - Math.max(g,b);
+
+  if (r > 140 && redDom > 45 && saturation > 60)  return { quality:'good',  nitrate:'منخفضة', r, g, b };
+  if (r > 100 && redDom > 20)                       return { quality:'warn',  nitrate:'متوسطة', r, g, b };
+  return                                                    { quality:'bad',   nitrate:'عالية',  r, g, b };
+}
+
+function analyzeTexture(data, w, h) {
+  /* Variance of grayscale brightness */
+  let sum=0, n=w*h;
+  const bright = new Float32Array(n);
+  for (let i=0;i<n;i++) {
+    bright[i] = (data[i*4]*0.299 + data[i*4+1]*0.587 + data[i*4+2]*0.114);
+    sum += bright[i];
+  }
+  const mean = sum/n;
+  let vari=0;
+  for (let i=0;i<n;i++) vari += (bright[i]-mean)**2;
+  vari /= n;
+
+  if (vari < 1800) return 'good';
+  if (vari < 4000) return 'warn';
+  return 'bad';
+}
+
+function analyzeWatermelon(imageData) {
+  const { data, width, height } = imageData;
+  const color   = analyzeColor(data, width, height);
+  const texture = analyzeTexture(data, width, height);
+
+  let score = 50;
+  const details = [];
+
+  /* Color scoring */
+  if (color.quality === 'good')  { score += 30; details.push('🍉 لون أحمر طبيعي'); }
+  else if (color.quality==='warn'){ score += 10; details.push('🟡 لون شاحب قليلاً'); }
+  else                            { score -= 20; details.push('🔴 لون غير طبيعي (نترات مرتفعة)'); }
+
+  /* Texture scoring */
+  if (texture === 'good')  { score += 20; details.push('✅ نسيج متجانس'); }
+  else if (texture==='warn'){ score += 5;  details.push('⚠️ نسيج متوسط'); }
+  else                      { score -= 15; details.push('❌ نسيج غير منتظم (فراغات)'); }
+
+  /* RGB hint */
+  details.push(`🔬 R:${Math.round(color.r)} G:${Math.round(color.g)} B:${Math.round(color.b)}`);
+  details.push(`🧪 نترات تقديرية: ${color.nitrate}`);
+
+  score = Math.max(0, Math.min(100, score));
+
+  let status, icon, label, msg;
+  if (score >= 65) {
+    status='good'; icon='✅'; label='بطيخ جيد ومنخفض النترات';
+    msg='طازج ومناسب للاستهلاك';
+  } else if (score >= 40) {
+    status='warn'; icon='⚠️'; label='بطيخ محتمل النترات';
+    msg='يوصى بفحص إضافي قبل الاستهلاك';
+  } else {
+    status='bad'; icon='❌'; label='بطيخ غير مناسب';
+    msg='نترات عالية — تجنّب الاستهلاك';
+  }
+
+  return { status, icon, label, msg, score, details };
+}
+
+/* ══════════════════════════════════════════
+   DISPLAY
+══════════════════════════════════════════ */
+function showResult(a) {
+  /* card class */
+  resultCard.className = `result-card ${a.status}`;
+
+  document.getElementById('rIcon').textContent  = a.icon;
+  document.getElementById('rTitle').textContent = a.label;
+  document.getElementById('rMsg').textContent   = a.msg;
+  document.getElementById('rScoreLbl').textContent = `نقاط الجودة: ${a.score}/100`;
+
+  /* score bar */
+  const fill = document.getElementById('rFill');
+  fill.style.width = '0%';
+  requestAnimationFrame(() => {
+    setTimeout(() => { fill.style.width = a.score + '%'; }, 60);
+  });
+
+  /* detail pills */
+  const dp = document.getElementById('rDetails');
+  dp.innerHTML = a.details.map(d =>
+    `<span class="pill">${d}</span>`).join('');
+
+  /* open */
+  resultWrap.classList.add('open');
+
+  /* stats */
+  const k = a.status === 'good' ? 'good' : a.status === 'bad' ? 'bad' : 'warn';
+  counts[k]++;
+  goodCount.textContent = counts.good;
+  badCount.textContent  = counts.bad;
+  warnCount.textContent = counts.warn;
+
+  /* history */
+  const empty = histList.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const item = document.createElement('div');
+  item.className = `h-item ${a.status}`;
+  item.innerHTML = `
+    <span class="h-icon">${a.icon}</span>
+    <div class="h-body">
+      <div class="h-label">${a.label}</div>
+      <div class="h-msg">${a.msg}</div>
+    </div>
+    <span class="h-score">${a.score}/100</span>
+  `;
+  histList.insertBefore(item, histList.firstChild);
+  while (histList.children.length > 15) histList.removeChild(histList.lastChild);
+}
+
+/* ══════════════════════════════════════════
+   CAPTURE
+══════════════════════════════════════════ */
+async function doAnalysis(source) {
+  if (busy) return;
+  busy = true;
+  captureBtn.classList.add('loading');
+  uploadBtn.disabled = true;
+  camBox.classList.add('scanning');
+
+  await new Promise(r => setTimeout(r, 60)); /* let UI update */
+
+  canvas.width  = source.videoWidth  || source.naturalWidth  || source.width;
+  canvas.height = source.videoHeight || source.naturalHeight || source.height;
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const result = analyzeWatermelon(imageData);
+  showResult(result);
+
+  /* stop scan effect */
+  await new Promise(r => setTimeout(r, 900));
+  camBox.classList.remove('scanning');
+  captureBtn.classList.remove('loading');
+  captureBtn.disabled = false;
+  uploadBtn.disabled = false;
+  busy = false;
+}
+
+captureBtn.addEventListener('click', () => doAnalysis(video));
+
+uploadBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => doAnalysis(img);
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  fileInput.value = '';
+});
+
+/* ── start ── */
+startCamera();
+</script>
+</body>
+</html>
+HTMLEOF
+echo "Done — $(wc -l < /mnt/user-data/outputs/watermelon_detector.html) lines"
